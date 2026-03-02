@@ -3,7 +3,7 @@ import './index.css';
 
 // Импортируем наши инструкции как текст (спасибо сборщику Vite)
 import instructionRaw from '../instruction.md?raw';
-import examplesRaw from '../examples.md?raw';
+import templatesRaw from '../templates.md?raw';
 
 function App() {
   const [shiftType, setShiftType] = useState('Утро');
@@ -14,6 +14,7 @@ function App() {
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
+  const [subNamesList, setSubNamesList] = useState([]);
 
   // Ссылка на конец блока результатов
   const resultEndRef = useRef(null);
@@ -25,6 +26,63 @@ function App() {
     }
   }, [result]);
 
+  const parseResult = (rawText) => {
+    if (!rawText) return null;
+
+    const sections = {
+      g12ru: [],
+      g12pk: [],
+      g345ru: [],
+      g345pk: []
+    };
+
+    let currentSector = ''; // 'g12' or 'g345'
+    let currentPos = '';    // 'ru' or 'pk'
+
+    const lines = rawText.split('\n');
+    lines.forEach(line => {
+      const cleanLine = line.trim();
+      if (!cleanLine) return;
+
+      const lowerLine = cleanLine.toLowerCase();
+
+      // Определяем сектор
+      if (lowerLine.includes('г12')) currentSector = 'g12';
+      else if (lowerLine.includes('г345')) currentSector = 'g345';
+
+      // Определяем позицию
+      if (lowerLine.includes('ру') || lowerLine.includes('радиолокатор')) currentPos = 'ru';
+      else if (lowerLine.includes('пк') || lowerLine.includes('процедурный')) currentPos = 'pk';
+
+      // Если есть и сектор, и позиция, и строка похожа на смену (содержит время или начинается с тире)
+      if (currentSector && currentPos && (cleanLine.startsWith('-') || / \d{2}:\d{2}/.test(cleanLine))) {
+        // Убираем информацию о секторе, позиции, (XX мин), и двоеточия
+        const cleaned = cleanLine
+          .replace(/^- /, '')
+          .replace(/\(\d+\s*мин\)/g, '')
+          // Убираем Г12, Г345, РУ, ПК из самой строки
+          .replace(/г12/gi, '')
+          .replace(/г345/gi, '')
+          .replace(/ру/gi, '')
+          .replace(/пк/gi, '')
+          .replace(/[:：]/g, ' ') // Убираем все двоеточия
+          .replace(/\s+/g, ' ')  // Схлопываем лишние пробелы
+          .trim();
+
+        if (cleaned) {
+          sections[`${currentSector}${currentPos}`].push(cleaned);
+        }
+      }
+    });
+
+    if (sections.g12ru.length === 0 && sections.g12pk.length === 0 &&
+      sections.g345ru.length === 0 && sections.g345pk.length === 0) {
+      return null;
+    }
+
+    return sections;
+  };
+
   const handleGenerate = async () => {
     if (!namesG12.trim() || !namesG345.trim()) {
       alert("Пожалуйста, заполните списки имен для обоих секторов.");
@@ -32,42 +90,77 @@ function App() {
     }
 
     setLoading(true);
+
+    const g12List = namesG12.split('\n').map(n => n.trim()).filter(n => n !== '');
+    const g345List = namesG345.split('\n').map(n => n.trim()).filter(n => n !== '');
+    const subList = useSubstitute ? namesSub.split('\n').map(n => n.trim()).filter(n => n !== '') : [];
+    setSubNamesList(subList);
+
     let draft = `Смена: ${shiftType}\n`;
-    draft += `Г12: ${namesG12.replace(/\n/g, ', ')}\n`;
-    draft += `Г345: ${namesG345.replace(/\n/g, ', ')}\n`;
-    if (useSubstitute) {
-      draft += `Общие подменные: ${namesSub.replace(/\n/g, ', ')}\n`;
-    }
-    if (additionalInfo) {
-      draft += `Доп. информация: \n${additionalInfo}\n`;
+    draft += `Всего сотрудников: ${g12List.length + g345List.length + subList.length}\n\n`;
+
+    let counter = 1;
+    draft += `Сектор Г12:\n`;
+    g12List.forEach(name => {
+      draft += `Чел ${counter}: ${name}\n`;
+      counter++;
+    });
+
+    draft += `\nСектор Г345:\n`;
+    g345List.forEach(name => {
+      draft += `Чел ${counter}: ${name}\n`;
+      counter++;
+    });
+
+    if (subList.length > 0) {
+      draft += `\nОбщие подменные:\n`;
+      subList.forEach(name => {
+        draft += `Чел ${counter}: ${name}\n`;
+        counter++;
+      });
     }
 
-    setResult(`Запрашиваю нейросеть (Groq). Пожалуйста, подождите...\n\nВаш запрос:\n${draft}`);
+    const modelName = import.meta.env.VITE_API_MODEL || 'gpt-4o-mini';
+    setResult(`Запрашиваю нейросеть (${modelName})...\n\nВаш запрос:\n${draft}`);
 
     try {
-      const systemPrompt = `Ты эксперт по логике и планированию расписаний. \n\n ИНСТРУКЦИИ:\n${instructionRaw}\n\nПРИМЕРЫ СХЕМ:\n${examplesRaw}\n\nОЧЕНЬ ВАЖНО: Ты ДОЛЖЕН сначала написать свои рассуждения по шагам внутри тегов <think>...</think>.
-В рассуждениях ты ОБЯЗАН:
-1. Идти строго ПО ВРЕМЕНИ (например, начиная с 07:50). Планируй параллельно все 4 позиции (Г12 РУ, Г12 ПК, Г345 РУ, Г345 ПК).
-2. Вести строгий ЖУРНАЛ ЗАНЯТОСТИ по каждому человеку: "Кто и до скольки сейчас занят".
-3. ПРОВЕРКА НА ЛЕНЬ: Ты ДОЛЖЕН довести время на КАЖДОЙ из 4 позиций ровно до конца смены.
-4. ЗАПРЕЩАЕТСЯ выдумывать смены в финальном ответе, которых не было в твоем Журнале.
+      const systemPrompt = `Ты — робот-обработчик шаблонов.
+Твоя единственная задача: 
+1. Прочитать список сотрудников и их номера (Чел 1, Чел 2...).
+2. Найти в "СПИСКЕ ШАБЛОНОВ" тот, который лучше всего подходит под запрос (по типу смены и количеству человек).
+3. Взять этот шаблон "КАК ЕСТЬ" (не меняя время ни на минуту).
+4. Заменить маркеры [Чел X] на соответствующие имена из списка.
+5. Вывести готовое расписание. КАЖДАЯ СТРОКА ДОЛЖНА НАЧИНАТЬСЯ С "Г12 РУ:", "Г12 ПК:", "Г345 РУ:" или "Г345 ПК:".
 
-ФОРМАТ ФИНАЛЬНОГО ОТВЕТА:
-После закрытия тега </think> ты ОБЯЗАН выдать расписание СТРОГО В СТОЛБИК, каждая смена с новой строки, по образцу из примеров:
-Г12 РУ: 14:35–16:05 Настя (90)
-Г12 РУ: 16:05–17:40 Аня (95)
-...
-ЗАПРЕЩЕНО писать смены через запятую в одну строку! У каждой смены должна быть своя строка!`;
-      const userPrompt = `Составь идеальное расписание по следующим данным, строго следуя твоим инструкциям:\n${draft}`;
+ЗАПРЕЩЕНО:
+- Пересчитывать время.
+- Менять структуру блоков.
+- Добавлять или удалять смены.
 
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+ИНСТРУКЦИЯ ПО ПРИВЯЗКЕ ИМЕН:
+${instructionRaw}
+
+СПИСОК ШАБЛОНОВ:
+${templatesRaw}
+
+Твой ответ должен начинаться с фразы "Использован Шаблон №[Номер]".
+Затем выведи само расписание.`;
+
+      const userPrompt = `Составь расписание, используя подходящий шаблон для следующих данных:\n${draft}`;
+
+      // Используем динамические переменные из .env
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://api.proxyapi.ru/openai/v1';
+      const apiKey = import.meta.env.VITE_API_KEY;
+      const modelName = import.meta.env.VITE_API_MODEL || 'gpt-4o-mini';
+
+      const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_GROQ_API_KEY}`
+          'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: modelName,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
@@ -81,108 +174,130 @@ function App() {
       }
 
       const data = await response.json();
-      const generatedText = data.choices[0].message.content;
+      const generatedText = data.choices[0]?.message?.content || 'Нет ответа от нейросети.';
 
-      setResult(`${generatedText}\n\n=================================\nВАШ ЗАПРОС:\n${draft}`);
+      setResult(generatedText);
     } catch (error) {
       console.error(error);
-      setResult(`Произошла ошибка при обращении к нейросети: ${error.message}\n\nВаш запрос:\n${draft}`);
+      setResult(`Ошибка: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
+  const parsedData = parseResult(result);
+
+  const renderScheduleLine = (line) => {
+    if (!line) return null;
+
+    // Проверяем, есть ли в строке имя из списка подменных
+    let isSub = false;
+    subNamesList.forEach(name => {
+      if (line.includes(name)) isSub = true;
+    });
+
+    return (
+      <div className={`schedule-line ${isSub ? 'sub-worker' : ''}`}>
+        {line}
+      </div>
+    );
+  };
+
   return (
-    <>
-      <div className="stars"></div>
-      <div className="app-container">
+    <div className="app-container">
+      {/* Левая панель */}
+      <div className="panel panel-left">
+        <h2>Настройки</h2>
 
-        {/* Левая панель с настройками */}
-        <div className="panel panel-left">
-          <h2>Настройки смены</h2>
-
-          <div className="shift-selector">
-            <button
-              className={`shift-btn ${shiftType === 'Утро' ? 'active' : ''}`}
-              onClick={() => setShiftType('Утро')}
-            >Утро</button>
-            <button
-              className={`shift-btn ${shiftType === 'День' ? 'active' : ''}`}
-              onClick={() => setShiftType('День')}
-            >День</button>
-            <button
-              className={`shift-btn ${shiftType === 'Ночь' ? 'active' : ''}`}
-              onClick={() => setShiftType('Ночь')}
-            >Ночь</button>
-          </div>
-
-          <div className="form-group">
-            <label>Сотрудники Г12 (каждое имя с новой строки):</label>
-            <textarea
-              value={namesG12}
-              onChange={(e) => setNamesG12(e.target.value)}
-              placeholder="Настя&#10;Инна&#10;Ира"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Сотрудники Г345 (каждое имя с новой строки):</label>
-            <textarea
-              value={namesG345}
-              onChange={(e) => setNamesG345(e.target.value)}
-              placeholder="Андрей&#10;Максим&#10;Женя"
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="checkbox-group">
-              <input
-                type="checkbox"
-                checked={useSubstitute}
-                onChange={(e) => setUseSubstitute(e.target.checked)}
-              />
-              Общая подмена
-            </label>
-
-            {useSubstitute && (
-              <textarea
-                value={namesSub}
-                onChange={(e) => setNamesSub(e.target.value)}
-                placeholder="Влад&#10;Сергей"
-                style={{ marginTop: '0.5rem' }}
-              />
-            )}
-          </div>
-
-          <div className="form-group">
-            <label>Дополнительная информация (допуски, проверки, тренажеры):</label>
-            <textarea
-              value={additionalInfo}
-              onChange={(e) => setAdditionalInfo(e.target.value)}
-              placeholder="Трен: 11-13 Инна&#10;Сидоров (2ч)"
-            />
-          </div>
-
-          <button
-            className="primary-btn"
-            onClick={handleGenerate}
-            disabled={loading}
-            style={{ opacity: loading ? 0.7 : 1, cursor: loading ? 'wait' : 'pointer' }}
-          >
-            {loading ? 'Идет расчет...' : 'Сгенерировать расписание'}
-          </button>
+        <div className="shift-selector">
+          <button className={`shift-btn ${shiftType === 'Утро' ? 'active' : ''}`} onClick={() => setShiftType('Утро')}>Утро</button>
+          <button className={`shift-btn ${shiftType === 'День' ? 'active' : ''}`} onClick={() => setShiftType('День')}>День</button>
+          <button className={`shift-btn ${shiftType === 'Ночь' ? 'active' : ''}`} onClick={() => setShiftType('Ночь')}>Ночь</button>
         </div>
 
-        {/* Правая панель с результатом */}
-        <div className="panel panel-right">
-          <h2>Результат</h2>
-          <div className="result-area">
-            {result ? result : <div className="placeholder-text">Заполните данные слева и нажмите «Сгенерировать»...</div>}
-            <div ref={resultEndRef} />
-          </div>
+        <div className="form-group">
+          <label>Г12 Имена (1 имя - 1 строка):</label>
+          <textarea value={namesG12} onChange={(e) => setNamesG12(e.target.value)} placeholder="Иван&#10;Мария" />
+        </div>
+
+        <div className="form-group">
+          <label>Г345 Имена (1 имя - 1 строка):</label>
+          <textarea value={namesG345} onChange={(e) => setNamesG345(e.target.value)} placeholder="Петр&#10;Анна" />
+        </div>
+
+        <div className="form-group">
+          <label className="checkbox-group">
+            <input type="checkbox" checked={useSubstitute} onChange={(e) => setUseSubstitute(e.target.checked)} />
+            Общие подменные
+          </label>
+          {useSubstitute && (
+            <textarea value={namesSub} onChange={(e) => setNamesSub(e.target.value)} placeholder="Сергей&#10;Елена" />
+          )}
+        </div>
+
+        <button className="primary-btn" onClick={handleGenerate} disabled={loading}>
+          {loading ? 'РАСЧЕТ...' : 'СФОРМИРОВАТЬ ГРАФИК'}
+        </button>
+      </div>
+
+      {/* Правая панель */}
+      <div className="panel panel-right">
+        <h2>Результат</h2>
+        <div className="result-area">
+          {!result && <div className="placeholder-text">Заполните данные и нажмите кнопку...</div>}
+
+          {result && !parsedData && (
+            <div style={{ whiteSpace: 'pre-wrap' }}>{result}</div>
+          )}
+
+          {parsedData && (
+            <div className="result-container">
+              {/* Колонка Г12 */}
+              <div className="result-column">
+                <div className="sector-block">
+                  <div className="sector-title">Сектор Г12</div>
+
+                  <div className="position-block">
+                    <div className="position-title">Радиолокатор (РУ)</div>
+                    <div className="schedule-list">
+                      {parsedData.g12ru.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
+                    </div>
+                  </div>
+
+                  <div className="position-block">
+                    <div className="position-title">Процедурный (ПК)</div>
+                    <div className="schedule-list">
+                      {parsedData.g12pk.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Колонка Г345 */}
+              <div className="result-column">
+                <div className="sector-block">
+                  <div className="sector-title">Сектор Г345</div>
+
+                  <div className="position-block">
+                    <div className="position-title">Радиолокатор (РУ)</div>
+                    <div className="schedule-list">
+                      {parsedData.g345ru.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
+                    </div>
+                  </div>
+
+                  <div className="position-block">
+                    <div className="position-title">Процедурный (ПК)</div>
+                    <div className="schedule-list">
+                      {parsedData.g345pk.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
