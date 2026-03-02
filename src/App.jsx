@@ -15,6 +15,7 @@ function App() {
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [subNamesList, setSubNamesList] = useState([]);
+  const [copyStatus, setCopyStatus] = useState('КОПИРОВАТЬ ТЕКСТ');
 
   // Ссылка на конец блока результатов
   const resultEndRef = useRef(null);
@@ -120,8 +121,8 @@ function App() {
       });
     }
 
-    const modelName = import.meta.env.VITE_API_MODEL || 'gpt-4o-mini';
-    setResult(`Запрашиваю нейросеть (${modelName})...\n\nВаш запрос:\n${draft}`);
+    const modelLabel = import.meta.env.VITE_API_MODEL || 'gpt-4o-mini';
+    setResult(`Запрашиваю нейросеть (${modelLabel})...\n\nВаш запрос:\n${draft}`);
 
     try {
       const systemPrompt = `Ты — робот-обработчик шаблонов.
@@ -148,7 +149,6 @@ ${templatesRaw}
 
       const userPrompt = `Составь расписание, используя подходящий шаблон для следующих данных:\n${draft}`;
 
-      // Используем динамические переменные из .env
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://api.proxyapi.ru/openai/v1';
       const apiKey = import.meta.env.VITE_API_KEY;
       const modelName = import.meta.env.VITE_API_MODEL || 'gpt-4o-mini';
@@ -183,6 +183,29 @@ ${templatesRaw}
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCopyToClipboard = () => {
+    const parsed = parseResult(result);
+    if (!parsed) return;
+
+    let textToCopy = `ГРАФИК: ${shiftType}\n\n`;
+
+    textToCopy += `--- СЕКТОР Г12 ---\n`;
+    textToCopy += `РАДИОЛОКАТОР (РУ):\n` + parsed.g12ru.join('\n') + `\n\n`;
+    textToCopy += `ПРОЦЕДУРНЫЙ (ПК):\n` + parsed.g12pk.join('\n') + `\n\n`;
+
+    textToCopy += `--- СЕКТОР Г345 ---\n`;
+    textToCopy += `РАДИОЛОКАТОР (РУ):\n` + parsed.g345ru.join('\n') + `\n\n`;
+    textToCopy += `ПРОЦЕДУРНЫЙ (ПК):\n` + parsed.g345pk.join('\n');
+
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopyStatus('СКОПИРОВАНО! ✅');
+      setTimeout(() => setCopyStatus('КОПИРОВАТЬ ТЕКСТ'), 2000);
+    }).catch(err => {
+      console.error('Ошибка копирования:', err);
+      alert('Не удалось скопировать текст');
+    });
   };
 
   const parsedData = parseResult(result);
@@ -242,7 +265,15 @@ ${templatesRaw}
 
       {/* Правая панель */}
       <div className="panel panel-right">
-        <h2>Результат</h2>
+        <div className="result-header">
+          <h2>Результат</h2>
+          {parsedData && (
+            <button className="copy-btn" onClick={handleCopyToClipboard}>
+              {copyStatus}
+            </button>
+          )}
+        </div>
+
         <div className="result-area">
           {!result && <div className="placeholder-text">Заполните данные и нажмите кнопку...</div>}
 
