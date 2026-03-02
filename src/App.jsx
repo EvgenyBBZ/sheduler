@@ -328,6 +328,7 @@ ${templatesRaw}
           )}
         </div>
       </div>
+      <div className="digital-signature">Unlsb3ZaaGVueWE=</div>
     </div>
   );
 }

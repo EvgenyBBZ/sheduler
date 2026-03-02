@@ -281,3 +281,17 @@ textarea:focus {
   font-style: italic;
   font-weight: 600;
 }
+
+.digital-signature {
+  position: fixed;
+  bottom: 0.8rem;
+  right: 1rem;
+  font-size: 0.75rem;
+  color: #edf6f9;
+  opacity: 0.4;
+  pointer-events: none;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  z-index: 1000;
+  user-select: none;
+  letter-spacing: 1px;
+}
