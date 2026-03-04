@@ -1,334 +1,429 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import './index.css';
+import { checkRules } from './validator';
 
-// Импортируем наши инструкции как текст (спасибо сборщику Vite)
-import instructionRaw from '../instruction.md?raw';
-import templatesRaw from '../templates.md?raw';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
-function App() {
-  const [shiftType, setShiftType] = useState('Утро');
-  const [useSubstitute, setUseSubstitute] = useState(false);
-  const [namesG12, setNamesG12] = useState('');
-  const [namesG345, setNamesG345] = useState('');
-  const [namesSub, setNamesSub] = useState('');
-  const [additionalInfo, setAdditionalInfo] = useState('');
-  const [result, setResult] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [subNamesList, setSubNamesList] = useState([]);
-  const [copyStatus, setCopyStatus] = useState('КОПИРОВАТЬ ТЕКСТ');
+// ─── Drag payload helpers ──────────────────────────────────────────
+const encodePool = (name) => `pool:${name}`;
+const encodeSlot = (marker, name) => `slot:${marker}:${name}`;
+const decodeDrag = (str) => {
+  if (!str) return null;
+  if (str.startsWith('pool:')) return { source: 'pool', name: str.slice(5) };
+  if (str.startsWith('slot:')) {
+    const rest = str.slice(5);
+    const sep = rest.indexOf(':');
+    return { source: 'slot', marker: rest.slice(0, sep), name: rest.slice(sep + 1) };
+  }
+  return null;
+};
 
-  // Ссылка на конец блока результатов
-  const resultEndRef = useRef(null);
+// ─── EmployeePool component ────────────────────────────────────────
+function EmployeePool({ pool, onAdd, onRemove, onDragStart }) {
+  const [inputValue, setInputValue] = useState('');
 
-  // Прокрутка при обновлении результата
-  useEffect(() => {
-    if (resultEndRef.current) {
-      resultEndRef.current.scrollIntoView({ behavior: "smooth" });
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      const name = inputValue.trim();
+      if (name) { onAdd(name); setInputValue(''); }
     }
-  }, [result]);
-
-  const parseResult = (rawText) => {
-    if (!rawText) return null;
-
-    const sections = {
-      g12ru: [],
-      g12pk: [],
-      g345ru: [],
-      g345pk: []
-    };
-
-    let currentSector = ''; // 'g12' or 'g345'
-    let currentPos = '';    // 'ru' or 'pk'
-
-    const lines = rawText.split('\n');
-    lines.forEach(line => {
-      const cleanLine = line.trim();
-      if (!cleanLine) return;
-
-      const lowerLine = cleanLine.toLowerCase();
-
-      // Определяем сектор
-      if (lowerLine.includes('г12')) currentSector = 'g12';
-      else if (lowerLine.includes('г345')) currentSector = 'g345';
-
-      // Определяем позицию
-      if (lowerLine.includes('ру') || lowerLine.includes('радиолокатор')) currentPos = 'ru';
-      else if (lowerLine.includes('пк') || lowerLine.includes('процедурный')) currentPos = 'pk';
-
-      // Если есть и сектор, и позиция, и строка похожа на смену (содержит время или начинается с тире)
-      if (currentSector && currentPos && (cleanLine.startsWith('-') || / \d{2}:\d{2}/.test(cleanLine))) {
-        // Убираем информацию о секторе, позиции, (XX мин), и двоеточия
-        const cleaned = cleanLine
-          .replace(/^- /, '')
-          .replace(/\(\d+\s*мин\)/g, '')
-          // Убираем Г12, Г345, РУ, ПК из самой строки
-          .replace(/г12/gi, '')
-          .replace(/г345/gi, '')
-          .replace(/ру/gi, '')
-          .replace(/пк/gi, '')
-          .replace(/[:：]/g, ' ') // Убираем все двоеточия
-          .replace(/\s+/g, ' ')  // Схлопываем лишние пробелы
-          .trim();
-
-        if (cleaned) {
-          sections[`${currentSector}${currentPos}`].push(cleaned);
-        }
-      }
-    });
-
-    if (sections.g12ru.length === 0 && sections.g12pk.length === 0 &&
-      sections.g345ru.length === 0 && sections.g345pk.length === 0) {
-      return null;
-    }
-
-    return sections;
   };
 
-  const handleGenerate = async () => {
-    if (!namesG12.trim() || !namesG345.trim()) {
-      alert("Пожалуйста, заполните списки имен для обоих секторов.");
-      return;
-    }
+  return (
+    <div className="employee-pool">
+      <div className="pool-input-row">
+        <input
+          type="text"
+          className="pool-input"
+          placeholder="Введите имя и нажмите Enter"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      </div>
+      <div className="pool-chips">
+        {pool.map((name) => (
+          <div
+            key={name}
+            className="employee-chip"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', encodePool(name));
+              e.dataTransfer.effectAllowed = 'move';
+              onDragStart();
+            }}
+            onDragEnd={() => onDragStart(false)}
+          >
+            <span>{name}</span>
+            <button className="chip-remove" onClick={() => onRemove(name)} title="Удалить">✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-    setLoading(true);
+// ─── App ───────────────────────────────────────────────────────────
+function App() {
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [scheduleData, setScheduleData] = useState(null);
+  const [scheduleId, setScheduleId] = useState('');
 
-    const g12List = namesG12.split('\n').map(n => n.trim()).filter(n => n !== '');
-    const g345List = namesG345.split('\n').map(n => n.trim()).filter(n => n !== '');
-    const subList = useSubstitute ? namesSub.split('\n').map(n => n.trim()).filter(n => n !== '') : [];
-    setSubNamesList(subList);
+  // pool: [имена]
+  const [pool, setPool] = useState([]);
 
-    let draft = `Смена: ${shiftType}\n`;
-    draft += `Всего сотрудников: ${g12List.length + g345List.length + subList.length}\n\n`;
+  // assignments: { "[Чел 1]": "Имя1", "[Чел 2]": "Имя2" }
+  const [assignments, setAssignments] = useState({});
 
-    let counter = 1;
-    draft += `Сектор Г12:\n`;
-    g12List.forEach(name => {
-      draft += `Чел ${counter}: ${name}\n`;
-      counter++;
-    });
+  const [saving, setSaving] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('КОПИРОВАТЬ ТЕКСТ');
+  const [errors, setErrors] = useState({});
+  const [isDragging, setIsDragging] = useState(false);
+  const [hoveredMarker, setHoveredMarker] = useState(null);
 
-    draft += `\nСектор Г345:\n`;
-    g345List.forEach(name => {
-      draft += `Чел ${counter}: ${name}\n`;
-      counter++;
-    });
+  // ── Load data ──
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const res = await fetch(`${API_URL}/templates`);
+        if (res.ok) setTemplates(await res.json());
+      } catch (err) { console.error('Failed to load templates', err); }
+    };
+    fetchTemplates();
 
-    if (subList.length > 0) {
-      draft += `\nОбщие подменные:\n`;
-      subList.forEach(name => {
-        draft += `Чел ${counter}: ${name}\n`;
-        counter++;
-      });
-    }
+    const savedId = localStorage.getItem('schedulerDraftId');
+    if (savedId) loadDraft(savedId);
+  }, []);
 
-    const modelLabel = import.meta.env.VITE_API_MODEL || 'gpt-4o-mini';
-    setResult(`Запрашиваю нейросеть (${modelLabel})...\n\nВаш запрос:\n${draft}`);
-
+  const loadDraft = async (id) => {
     try {
-      const systemPrompt = `Ты — робот-обработчик шаблонов.
-Твоя единственная задача: 
-1. Прочитать список сотрудников и их номера (Чел 1, Чел 2...).
-2. Найти в "СПИСКЕ ШАБЛОНОВ" тот, который лучше всего подходит под запрос (по типу смены и количеству человек).
-3. Взять этот шаблон "КАК ЕСТЬ" (не меняя время ни на минуту).
-4. Заменить маркеры [Чел X] на соответствующие имена из списка.
-5. Вывести готовое расписание. КАЖДАЯ СТРОКА ДОЛЖНА НАЧИНАТЬСЯ С "Г12 РУ:", "Г12 ПК:", "Г345 РУ:" или "Г345 ПК:".
+      const res = await fetch(`${API_URL}/schedules/${id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setScheduleId(data.id);
+      setSelectedTemplateId(data.templateId.toString());
+      setScheduleData(data.slotsData);
+      if (data.pool) setPool(data.pool);
+      if (data.assignments) setAssignments(data.assignments);
+    } catch (err) { console.error('Failed to load draft', err); }
+  };
 
-ЗАПРЕЩЕНО:
-- Пересчитывать время.
-- Менять структуру блоков.
-- Добавлять или удалять смены.
+  // ── Template selection ──
+  const handleTemplateSelect = (e) => {
+    const tId = e.target.value;
+    setSelectedTemplateId(tId);
+    if (!tId) { setScheduleData(null); return; }
+    const template = templates.find(t => t.id.toString() === tId);
+    if (template) {
+      const slots = JSON.parse(JSON.stringify(template.structure));
+      setScheduleData(slots);
+      setAssignments({});
+      setScheduleId('');
+      localStorage.removeItem('schedulerDraftId');
+    }
+  };
 
-ИНСТРУКЦИЯ ПО ПРИВЯЗКЕ ИМЕН:
-${instructionRaw}
+  const addToPool = (name) => {
+    if (!name) return;
+    setPool(prev => pool.includes(name) ? prev : [...prev, name]);
+  };
 
-СПИСОК ШАБЛОНОВ:
-${templatesRaw}
+  const removeFromPool = (name) => {
+    setPool(prev => prev.filter(n => n !== name));
+  };
 
-Твой ответ должен начинаться с фразы "Использован Шаблон №[Номер]".
-Затем выведи само расписание.`;
+  // ── Validation Engine ──
+  useEffect(() => {
+    if (!scheduleData || !assignments) return;
+    try {
+      const vResults = checkRules(scheduleData, assignments);
+      setErrors(vResults || {});
+    } catch (err) {
+      console.error('Validation error:', err);
+    }
+  }, [scheduleData, assignments]);
 
-      const userPrompt = `Составь расписание, используя подходящий шаблон для следующих данных:\n${draft}`;
+  // ── Swap Logic (Swapping data labels, keeping UI labels static) ──
+  const handleSwapSectors = () => {
+    setScheduleData(prev => prev.map(s => ({
+      ...s,
+      sector: s.sector === 'Г12' ? 'Г345' : 'Г12'
+    })));
+  };
 
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://api.proxyapi.ru/openai/v1';
-      const apiKey = import.meta.env.VITE_API_KEY;
-      const modelName = import.meta.env.VITE_API_MODEL || 'gpt-4o-mini';
+  const handleSwapWorkstations = (sectorToSwap) => {
+    setScheduleData(prev => prev.map(s => {
+      if (s.sector !== sectorToSwap) return s;
+      return {
+        ...s,
+        position: s.position === 'РУ' ? 'ПК' : 'РУ'
+      };
+    }));
+  };
 
-      const response = await fetch(`${baseUrl}/chat/completions`, {
+  // ── Time edit ──
+  const handleTimeChange = (id, field, value) => {
+    setScheduleData(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
+  };
+
+  // ─── DROP LOGIC (Global Swap & Binding) ─────────────────────────
+  const handleDropOnSlot = (e, targetMarker) => {
+    e.preventDefault();
+    setIsDragging(false);
+    setHoveredMarker(null);
+    const raw = e.dataTransfer.getData('text/plain');
+    const drag = decodeDrag(raw);
+    if (!drag) return;
+
+    if (drag.source === 'pool') {
+      // Пул -> Слот (глобальная привязка к маркеру)
+      const oldName = assignments[targetMarker];
+      setAssignments(prev => ({ ...prev, [targetMarker]: drag.name }));
+      setPool(p => {
+        const updated = p.filter(n => n !== drag.name);
+        if (oldName) return [...updated, oldName];
+        return updated;
+      });
+    } else if (drag.source === 'slot') {
+      // Слот -> Слот (Swap ролей)
+      const sourceMarker = drag.marker;
+      if (sourceMarker === targetMarker) return;
+
+      const sourceName = assignments[sourceMarker];
+      const targetName = assignments[targetMarker];
+
+      setAssignments(prev => ({
+        ...prev,
+        [sourceMarker]: targetName || null,
+        [targetMarker]: sourceName || null
+      }));
+    }
+  };
+
+  const handleDropOnPool = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    setHoveredMarker(null);
+    const raw = e.dataTransfer.getData('text/plain');
+    const drag = decodeDrag(raw);
+    if (!drag || drag.source !== 'slot') return;
+
+    // Слот -> Пул (освобождение роли)
+    const marker = drag.marker;
+    const nameToMove = assignments[marker];
+    if (nameToMove) {
+      setAssignments(prev => {
+        const next = { ...prev };
+        delete next[marker];
+        return next;
+      });
+      addToPool(nameToMove);
+    }
+  };
+
+  // ── Save ──
+  const saveDraft = async () => {
+    if (!scheduleData || !selectedTemplateId) return;
+    setSaving(true);
+    const currentId = scheduleId || `draft_${Date.now()}`;
+    try {
+      const res = await fetch(`${API_URL}/schedules/save`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: modelName,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.1
+          id: currentId,
+          templateId: Number(selectedTemplateId),
+          slotsData: scheduleData,
+          pool,
+          assignments
         })
       });
-
-      if (!response.ok) {
-        throw new Error(`Ошибка HTTP: ${response.status}`);
+      if (res.ok) {
+        setScheduleId(currentId);
+        localStorage.setItem('schedulerDraftId', currentId);
+        const btn = document.getElementById('save-btn');
+        if (btn) {
+          btn.innerText = 'СОХРАНЕНО ✓';
+          setTimeout(() => { btn.innerText = 'СОХРАНИТЬ ПРОГРЕСС'; }, 2000);
+        }
       }
-
-      const data = await response.json();
-      const generatedText = data.choices[0]?.message?.content || 'Нет ответа от нейросети.';
-
-      setResult(generatedText);
-    } catch (error) {
-      console.error(error);
-      setResult(`Ошибка: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error('Save failed', err); }
+    setSaving(false);
   };
 
+  // ── Copy to clipboard ──
   const handleCopyToClipboard = () => {
-    const parsed = parseResult(result);
-    if (!parsed) return;
+    if (!scheduleData) return;
 
-    let textToCopy = `ГРАФИК: ${shiftType}\n\n`;
+    // Check if there are errors and ask for confirmation
+    const hasErrors = Object.values(errors).some(e => e.type === 'error' || e.type === 'warning');
+    if (hasErrors) {
+      if (!window.confirm('В расписании обнаружены ошибки или предупреждения. Вы уверены, что хотите скопировать его в буфер обмена?')) {
+        return;
+      }
+    }
+    const grouped = { Г12: { РУ: [], ПК: [] }, Г345: { РУ: [], ПК: [] } };
+    scheduleData.forEach(slot => {
+      const assignedName = assignments[slot.assignedTo];
+      const display = assignedName || slot.assignedTo;
+      grouped[slot.sector][slot.position].push(`${slot.timeStart} – ${slot.timeEnd} : ${display}`);
+    });
 
-    textToCopy += `--- СЕКТОР Г12 ---\n`;
-    textToCopy += `РАДИОЛОКАТОР (РУ):\n` + parsed.g12ru.join('\n') + `\n\n`;
-    textToCopy += `ПРОЦЕДУРНЫЙ (ПК):\n` + parsed.g12pk.join('\n') + `\n\n`;
+    const t = templates.find(t => t.id.toString() === selectedTemplateId);
+    let text = `ГРАФИК: ${t?.title ?? ''}\n\n`;
+    ['Г12', 'Г345'].forEach(sec => {
+      text += `--- СЕКТОР ${sec} ---\n`;
+      text += `РАДИОЛОКАТОР (РУ):\n` + grouped[sec]['РУ'].join('\n') + `\n\n`;
+      text += `ПРОЦЕДУРНЫЙ (ПК):\n` + grouped[sec]['ПК'].join('\n') + `\n\n`;
+    });
 
-    textToCopy += `--- СЕКТОР Г345 ---\n`;
-    textToCopy += `РАДИОЛОКАТОР (РУ):\n` + parsed.g345ru.join('\n') + `\n\n`;
-    textToCopy += `ПРОЦЕДУРНЫЙ (ПК):\n` + parsed.g345pk.join('\n');
-
-    navigator.clipboard.writeText(textToCopy).then(() => {
+    navigator.clipboard.writeText(text).then(() => {
       setCopyStatus('СКОПИРОВАНО! ✅');
       setTimeout(() => setCopyStatus('КОПИРОВАТЬ ТЕКСТ'), 2000);
-    }).catch(err => {
-      console.error('Ошибка копирования:', err);
-      alert('Не удалось скопировать текст');
     });
   };
 
-  const parsedData = parseResult(result);
-
-  const renderScheduleLine = (line) => {
-    if (!line) return null;
-
-    // Проверяем, есть ли в строке имя из списка подменных
-    let isSub = false;
-    subNamesList.forEach(name => {
-      if (line.includes(name)) isSub = true;
-    });
+  // ── Render ──
+  const renderSlotsGroup = (sector, position) => {
+    if (!scheduleData) return null;
+    const slots = scheduleData.filter(s => s.sector === sector && s.position === position);
 
     return (
-      <div className={`schedule-line ${isSub ? 'sub-worker' : ''}`}>
-        {line}
+      <div className="position-block">
+        <div className="position-title">{position === 'РУ' ? 'Радиолокатор (РУ)' : 'Процедурный (ПК)'}</div>
+        <div className="schedule-list">
+          {slots.map(slot => {
+            const assignedName = assignments[slot.assignedTo];
+            const isFull = !!assignedName;
+            const isMainDropTarget = hoveredMarker === slot.assignedTo;
+            const isRelatedDropTarget = isDragging && hoveredMarker && hoveredMarker === slot.assignedTo;
+
+            return (
+              <div
+                key={slot.id}
+                className={`atomic-slot 
+                  ${!isFull && isDragging ? 'slot-drop-target' : ''} 
+                  ${isRelatedDropTarget ? 'slot-highlight-marker' : ''}
+                `}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (hoveredMarker !== slot.assignedTo) setHoveredMarker(slot.assignedTo);
+                }}
+                onDrop={(e) => handleDropOnSlot(e, slot.assignedTo)}
+                onDragLeave={() => setHoveredMarker(null)}
+              >
+                <div className="slot-time-inputs">
+                  <input type="time" value={slot.timeStart} className="time-input"
+                    onChange={(e) => handleTimeChange(slot.id, 'timeStart', e.target.value)} />
+                  <span className="time-sep">–</span>
+                  <input type="time" value={slot.timeEnd} className="time-input"
+                    onChange={(e) => handleTimeChange(slot.id, 'timeEnd', e.target.value)} />
+                </div>
+
+                <div
+                  className={`slot-assigned ${isFull ? 'slot-filled' : 'slot-placeholder'}`}
+                  draggable={isFull}
+                  onDragStart={isFull ? (e) => {
+                    e.dataTransfer.setData('text/plain', encodeSlot(slot.assignedTo, assignedName));
+                    setIsDragging(true);
+                    setHoveredMarker(slot.assignedTo);
+                  } : undefined}
+                  onDragEnd={() => { setIsDragging(false); setHoveredMarker(null); }}
+                >
+                  <span className="assigned-name">{assignedName || slot.assignedTo}</span>
+                </div>
+
+                {/* Validation icon */}
+                {errors[slot.id] && (
+                  <div
+                    className="slot-validation"
+                    data-tooltip={errors[slot.id].message}
+                  >
+                    {errors[slot.id].type === 'error'
+                      ? <span className="slot-error-icon">!</span>
+                      : <span className="slot-warning-icon">!</span>
+                    }
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
 
   return (
     <div className="app-container">
-      {/* Левая панель */}
       <div className="panel panel-left">
         <h2>Настройки</h2>
-
-        <div className="shift-selector">
-          <button className={`shift-btn ${shiftType === 'Утро' ? 'active' : ''}`} onClick={() => setShiftType('Утро')}>Утро</button>
-          <button className={`shift-btn ${shiftType === 'День' ? 'active' : ''}`} onClick={() => setShiftType('День')}>День</button>
-          <button className={`shift-btn ${shiftType === 'Ночь' ? 'active' : ''}`} onClick={() => setShiftType('Ночь')}>Ночь</button>
-        </div>
-
         <div className="form-group">
-          <label>Г12 Имена (1 имя - 1 строка):</label>
-          <textarea value={namesG12} onChange={(e) => setNamesG12(e.target.value)} placeholder="Иван&#10;Мария" />
+          <label>Шаблон:</label>
+          <select value={selectedTemplateId} onChange={handleTemplateSelect} className="template-select">
+            <option value="">-- Выберите шаблон --</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+          </select>
         </div>
-
         <div className="form-group">
-          <label>Г345 Имена (1 имя - 1 строка):</label>
-          <textarea value={namesG345} onChange={(e) => setNamesG345(e.target.value)} placeholder="Петр&#10;Анна" />
+          <label>Пул сотрудников:</label>
+          <EmployeePool pool={pool} onAdd={addToPool} onRemove={removeFromPool} onDragStart={(v = true) => setIsDragging(v)} />
         </div>
-
-        <div className="form-group">
-          <label className="checkbox-group">
-            <input type="checkbox" checked={useSubstitute} onChange={(e) => setUseSubstitute(e.target.checked)} />
-            Общие подменные
-          </label>
-          {useSubstitute && (
-            <textarea value={namesSub} onChange={(e) => setNamesSub(e.target.value)} placeholder="Сергей&#10;Елена" />
-          )}
+        <div className={`pool-drop-zone ${isDragging ? 'pool-drop-active' : ''}`} onDragOver={e => e.preventDefault()} onDrop={handleDropOnPool}>
+          ↩ Вернуть в пул
         </div>
-
-        <button className="primary-btn" onClick={handleGenerate} disabled={loading}>
-          {loading ? 'РАСЧЕТ...' : 'СФОРМИРОВАТЬ ГРАФИК'}
+        <button id="save-btn" className="primary-btn" onClick={saveDraft} disabled={saving || !scheduleData}>
+          {saving ? 'СОХРАНЕНИЕ...' : 'СОХРАНИТЬ ПРОГРЕСС'}
         </button>
       </div>
 
-      {/* Правая панель */}
       <div className="panel panel-right">
         <div className="result-header">
-          <h2>Результат</h2>
-          {parsedData && (
-            <button className="copy-btn" onClick={handleCopyToClipboard}>
-              {copyStatus}
-            </button>
-          )}
+          <h2>Редактор</h2>
+          {scheduleData && <button className="copy-btn" onClick={handleCopyToClipboard}>{copyStatus}</button>}
         </div>
-
         <div className="result-area">
-          {!result && <div className="placeholder-text">Заполните данные и нажмите кнопку...</div>}
-
-          {result && !parsedData && (
-            <div style={{ whiteSpace: 'pre-wrap' }}>{result}</div>
-          )}
-
-          {parsedData && (
+          {!scheduleData ? <div className="placeholder-text">Выберите шаблон...</div> : (
             <div className="result-container">
-              {/* Колонка Г12 */}
+              {/* FIXED COLUMN: G12 */}
               <div className="result-column">
                 <div className="sector-block">
-                  <div className="sector-title">Сектор Г12</div>
-
-                  <div className="position-block">
-                    <div className="position-title">Радиолокатор (РУ)</div>
-                    <div className="schedule-list">
-                      {parsedData.g12ru.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
-                    </div>
+                  <div className="sector-title">
+                    <span>Сектор Г12</span>
+                    <button className="swap-workstations-btn" onClick={() => handleSwapWorkstations('Г12')}>
+                      ⇅ Позиции
+                    </button>
                   </div>
-
-                  <div className="position-block">
-                    <div className="position-title">Процедурный (ПК)</div>
-                    <div className="schedule-list">
-                      {parsedData.g12pk.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
-                    </div>
-                  </div>
+                  {renderSlotsGroup('Г12', 'РУ')}
+                  {renderSlotsGroup('Г12', 'ПК')}
                 </div>
               </div>
 
-              {/* Колонка Г345 */}
+              {/* FIXED UI: SWAP SECTORS BUTTON */}
+              <div className="swap-sectors-wrapper">
+                <button className="swap-btn" title="Перекинуть данные между секторами" onClick={handleSwapSectors}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7 16V4M7 4L3 8M7 4L11 8M17 8v12M17 20l4-4M17 20l-4-4" /></svg>
+                </button>
+              </div>
+
+              {/* FIXED COLUMN: G345 */}
               <div className="result-column">
                 <div className="sector-block">
-                  <div className="sector-title">Сектор Г345</div>
-
-                  <div className="position-block">
-                    <div className="position-title">Радиолокатор (РУ)</div>
-                    <div className="schedule-list">
-                      {parsedData.g345ru.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
-                    </div>
+                  <div className="sector-title">
+                    <span>Сектор Г345</span>
+                    <button className="swap-workstations-btn" onClick={() => handleSwapWorkstations('Г345')}>
+                      ⇅ Позиции
+                    </button>
                   </div>
-
-                  <div className="position-block">
-                    <div className="position-title">Процедурный (ПК)</div>
-                    <div className="schedule-list">
-                      {parsedData.g345pk.map((s, i) => <div key={i}>{renderScheduleLine(s)}</div>)}
-                    </div>
-                  </div>
+                  {renderSlotsGroup('Г345', 'РУ')}
+                  {renderSlotsGroup('Г345', 'ПК')}
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
-      <div className="digital-signature">Unlsb3ZaaGVueWE=</div>
+      <div className="digital-signature">Vostok / Offline Engine</div>
     </div>
   );
 }

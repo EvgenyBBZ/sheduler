@@ -7,9 +7,7 @@
 body {
   font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
   background-color: #006d77;
-  /* Deep Sea Teal - Solid background */
   color: #edf6f9;
-  /* Alice Blue - Light text */
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
@@ -18,15 +16,15 @@ body {
 .app-container {
   display: flex;
   min-height: 100vh;
-  padding: 2rem;
-  gap: 2rem;
-  max-width: 1400px;
-  margin: 0 auto;
+  padding: 1.5rem;
+  gap: 1.5rem;
+  max-width: 100%;
+  margin: 0;
 }
 
+/* ─── Panels ────────────────────────────────────────────────────── */
 .panel {
   background-color: #83c5be;
-  /* Tiffany Blue - Panels */
   border: 2px solid #edf6f9;
   border-radius: 20px;
   padding: 2rem;
@@ -35,18 +33,18 @@ body {
   flex-direction: column;
   gap: 1.5rem;
   color: #006d77;
-  /* Darker text on light panels */
 }
 
 .panel-left {
-  flex: 1;
-  max-width: 450px;
+  flex: 0 0 380px;
+  width: 380px;
 }
 
 .panel-right {
-  flex: 2;
+  flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 h1,
@@ -59,6 +57,7 @@ h3 {
   letter-spacing: 1px;
 }
 
+/* ─── Form elements ─────────────────────────────────────────────── */
 .form-group {
   display: flex;
   flex-direction: column;
@@ -74,7 +73,6 @@ label {
 textarea,
 input[type="text"] {
   background-color: #edf6f9;
-  /* Alice Blue inputs */
   border: 1.5px solid #006d77;
   color: #006d77;
   border-radius: 10px;
@@ -86,11 +84,12 @@ input[type="text"] {
 }
 
 textarea {
-  min-height: 100px;
+  min-height: 80px;
   resize: vertical;
 }
 
-textarea:focus {
+textarea:focus,
+input[type="text"]:focus {
   outline: none;
   border-color: #006d77;
   box-shadow: 0 0 0 4px rgba(0, 109, 119, 0.15);
@@ -111,49 +110,133 @@ textarea:focus {
   accent-color: #006d77;
 }
 
-.shift-selector {
+/* ─── Template select ───────────────────────────────────────────── */
+.template-select {
+  background-color: #edf6f9;
+  border: 1.5px solid #006d77;
+  color: #006d77;
+  border-radius: 10px;
+  padding: 0.75rem;
+  font-family: inherit;
+  font-size: 1rem;
+  width: 100%;
+  cursor: pointer;
+}
+
+/* ─── Employee Pool ─────────────────────────────────────────────── */
+.employee-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pool-input-row {
   display: flex;
   gap: 0.5rem;
-  background-color: #6fb6ae;
-  border-radius: 12px;
-  padding: 0.4rem;
-  border: 1px solid #006d77;
 }
 
-.shift-btn {
+.pool-input {
+  background-color: #edf6f9;
+  border: 1.5px solid #006d77;
+  color: #006d77;
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  font-family: inherit;
+  font-size: 0.95rem;
   flex: 1;
-  background: transparent;
+}
+
+.pool-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(0, 109, 119, 0.15);
+}
+
+.pool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-height: 36px;
+}
+
+.employee-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background-color: #006d77;
+  color: #edf6f9;
+  border-radius: 20px;
+  padding: 0.3rem 0.7rem 0.3rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border: 2px solid transparent;
+}
+
+.employee-chip:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.employee-chip:active {
+  transform: scale(0.97);
+  cursor: grabbing;
+}
+
+.chip-remove {
+  background: rgba(255, 255, 255, 0.25);
   border: none;
   color: #edf6f9;
-  padding: 0.7rem;
-  border-radius: 8px;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
   cursor: pointer;
-  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.15s;
+}
+
+.chip-remove:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+/* ─── Pool drop zone ────────────────────────────────────────────── */
+.pool-drop-zone {
+  border: 2px dashed rgba(0, 109, 119, 0.4);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(0, 109, 119, 0.55);
   transition: all 0.2s;
+  cursor: default;
 }
 
-.shift-btn:hover {
-  background-color: rgba(237, 246, 249, 0.2);
-}
-
-.shift-btn.active {
-  background-color: #edf6f9;
+.pool-drop-zone.pool-drop-active {
+  border-color: #006d77;
+  background: rgba(0, 109, 119, 0.08);
   color: #006d77;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
+/* ─── Buttons ────────────────────────────────────────────────── */
 .primary-btn {
   background-color: #006d77;
   color: #edf6f9;
   border: none;
-  padding: 1.2rem;
+  padding: 1.1rem;
   border-radius: 12px;
   font-weight: 800;
   font-size: 1rem;
   cursor: pointer;
   transition: all 0.3s;
   width: 100%;
-  margin-top: 1rem;
+  margin-top: auto;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -168,18 +251,59 @@ textarea:focus {
   transform: translateY(0);
 }
 
-/* Results Layout */
+.primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ─── Results layout ─────────────────────────────────────────── */
 .result-container {
   display: flex;
   gap: 1.5rem;
   height: 100%;
+  position: relative;
+  align-items: stretch;
+}
+
+.swap-sectors-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+}
+
+.swap-btn {
+  background: #006d77;
+  color: #edf6f9;
+  border: 2px solid #edf6f9;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  z-index: 5;
+}
+
+.swap-btn:hover {
+  transform: rotate(180deg) scale(1.1);
+  background: #005a63;
+}
+
+.swap-btn svg {
+  width: 24px;
+  height: 24px;
 }
 
 .result-column {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
+  min-width: 0;
 }
 
 .sector-block {
@@ -187,7 +311,6 @@ textarea:focus {
   border-radius: 15px;
   padding: 1.25rem;
   background: #edf6f9;
-  /* Light inner blocks */
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -196,13 +319,38 @@ textarea:focus {
 }
 
 .sector-title {
-  font-size: 1.4rem;
+  font-size: 1.3rem;
   font-weight: 900;
   color: #006d77;
   border-bottom: 2.5px solid #006d77;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swap-workstations-btn {
+  background: rgba(0, 109, 119, 0.1);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: #006d77;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  transition: background 0.2s;
+}
+
+.swap-workstations-btn:hover {
+  background: rgba(0, 109, 119, 0.2);
+}
+
+.sector-block {
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease;
 }
 
 .position-block {
@@ -212,31 +360,215 @@ textarea:focus {
 .position-title {
   font-weight: 900;
   text-transform: uppercase;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   margin-bottom: 0.6rem;
   color: #006d77;
-  background: rgba(131, 197, 190, 0.2);
+  background: rgba(131, 197, 190, 0.25);
   padding: 4px 8px;
   border-radius: 4px;
 }
 
 .schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ─── Atomic slot ────────────────────────────────────────────── */
+.atomic-slot {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  min-height: 54px;
+  background: rgba(255, 255, 255, 0.5);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.atomic-slot:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Pulsing dashed highlight for empty slots while dragging */
+.slot-drop-target {
+  border: 2px dashed #006d77 !important;
+  background: rgba(0, 109, 119, 0.07) !important;
+  animation: pulse-border 1s ease infinite;
+}
+
+@keyframes pulse-border {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 109, 119, 0.25);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px rgba(0, 109, 119, 0.1);
+  }
+}
+
+/* Глобальная подсветка слотов с тем же маркером */
+.slot-highlight-marker {
+  border: 2px solid #006d77 !important;
+  background: rgba(0, 109, 119, 0.12) !important;
+  box-shadow: 0 0 15px rgba(0, 109, 119, 0.3);
+  transform: scale(1.02);
+  z-index: 10;
+}
+
+/* ─── Time inputs ────────────────────────────────────────────── */
+.slot-time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.time-sep {
+  font-weight: 700;
+  color: #006d77;
+  font-size: 1rem;
+}
+
+.time-input {
+  background-color: transparent;
+  border: 1px solid rgba(0, 109, 119, 0.25);
+  border-radius: 6px;
+  color: #006d77;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
-  font-size: 1.05rem;
-  line-height: 1.6;
-  padding-left: 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  width: 135px;
+  /* Скорректировано по просьбе пользователя (было 295px) */
+  transition: all 0.2s;
 }
 
-.schedule-line {
-  padding: 2px 0;
-  border-bottom: 1px dashed rgba(0, 109, 119, 0.1);
+.time-input:focus {
+  outline: none;
+  background-color: #fff;
+  border-color: #006d77;
+  box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.12);
 }
 
-.sub-worker {
+/* ─── Slot assigned name area ────────────────────────────────── */
+.slot-assigned {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.slot-filled {
+  background: #006d77;
+  color: #edf6f9;
+  cursor: grab;
+  font-weight: 700;
+}
+
+.slot-filled:hover {
+  background: #005a63;
+}
+
+.slot-filled:active {
+  cursor: grabbing;
+}
+
+.assigned-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+}
+
+.slot-marker {
+  font-size: 0.68rem;
+  opacity: 0.55;
+  font-weight: normal;
+  flex-shrink: 0;
+}
+
+.slot-placeholder-text {
+  font-style: italic;
+  opacity: 0.5;
+  font-size: 0.85rem;
+  color: #006d77;
+}
+
+/* ─── Validation error icon ──────────────────────────────────── */
+.slot-validation {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.slot-error-icon,
+.slot-warning-icon {
   font-weight: 900;
-  text-decoration: underline;
+  font-size: 1rem;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  z-index: 10;
 }
 
+.slot-error-icon {
+  background-color: #ff4d4d;
+  box-shadow: 0 0 8px rgba(255, 77, 77, 0.6);
+}
+
+.slot-warning-icon {
+  background-color: #ffc107;
+  color: #006d77;
+  box-shadow: 0 0 8px rgba(255, 193, 7, 0.6);
+}
+
+/* Tooltip on hover */
+.slot-validation::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 125%;
+  right: 0;
+  background-color: #333;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  width: 250px;
+  text-align: left;
+  line-height: 1.4;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 1001;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.slot-validation:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Result header ──────────────────────────────────────────── */
 .result-header {
   display: flex;
   justify-content: space-between;
@@ -248,7 +580,7 @@ textarea:focus {
   background-color: #006d77;
   color: #edf6f9;
   border: 2px solid #edf6f9;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1.1rem;
   border-radius: 8px;
   font-weight: 800;
   font-size: 0.8rem;
@@ -282,6 +614,7 @@ textarea:focus {
   font-weight: 600;
 }
 
+/* ─── Digital signature ──────────────────────────────────────── */
 .digital-signature {
   position: fixed;
   bottom: 0.8rem;
