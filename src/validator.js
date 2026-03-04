@@ -31,8 +31,9 @@ export const checkRules = (slots, assignments) => {
     const employeeMap = {};
 
     slots.forEach(slot => {
-        const name = assignments[slot.assignedTo];
-        if (!name) return; // Игнорируем пустые слоты
+        // Приоритет: ручное имя (overrideName) > глобальное назначение (assignments)
+        const name = slot.overrideName || assignments[slot.assignedTo];
+        if (!name) return; // Слот не назначенм пустые слоты
 
         const startMin = timeToMinutes(slot.timeStart);
         const endMin = timeToMinutes(slot.timeEnd);

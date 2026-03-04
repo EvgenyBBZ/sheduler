@@ -411,12 +411,45 @@ input[type="text"]:focus {
 }
 
 /* Глобальная подсветка слотов с тем же маркером */
-.slot-highlight-marker {
-  border: 2px solid #006d77 !important;
-  background: rgba(0, 109, 119, 0.12) !important;
-  box-shadow: 0 0 15px rgba(0, 109, 119, 0.3);
-  transform: scale(1.02);
+.slot-overridden {
+  border: 2px solid #3a86ff !important;
+  background: rgba(58, 134, 255, 0.08) !important;
+  box-shadow: inset 0 0 10px rgba(58, 134, 255, 0.1);
+}
+
+.override-indicator {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #3a86ff;
+  color: white;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: 2px solid white;
   z-index: 10;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.override-reset-btn {
+  background: none;
+  border: none;
+  color: #3a86ff;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  margin-left: -5px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.override-reset-btn:hover {
+  opacity: 1;
 }
 
 /* ─── Time inputs ────────────────────────────────────────────── */

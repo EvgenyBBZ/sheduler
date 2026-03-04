@@ -167,14 +167,27 @@ function App() {
     setScheduleData(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
   };
 
-  // ─── DROP LOGIC (Global Swap & Binding) ─────────────────────────
-  const handleDropOnSlot = (e, targetMarker) => {
+  // ─── DROP LOGIC ────────────────────────────────────────────────
+  const handleDropOnSlot = (e, targetMarker, targetSlotId) => {
     e.preventDefault();
     setIsDragging(false);
     setHoveredMarker(null);
     const raw = e.dataTransfer.getData('text/plain');
     const drag = decodeDrag(raw);
     if (!drag) return;
+
+    const isCtrl = e.ctrlKey || e.metaKey;
+
+    if (isCtrl) {
+      // РУЧНОЙ ПЕРЕНОС (Override only this slot)
+      setScheduleData(prev => prev.map(s => {
+        if (s.id !== targetSlotId) return s;
+        return { ...s, overrideName: drag.name };
+      }));
+      // Remove from pool if it came from pool
+      if (drag.source === 'pool') removeFromPool(drag.name);
+      return;
+    }
 
     if (drag.source === 'pool') {
       // Пул -> Слот (глобальная привязка к маркеру)
@@ -199,6 +212,12 @@ function App() {
         [targetMarker]: sourceName || null
       }));
     }
+  };
+
+  const handleResetOverride = (slotId) => {
+    setScheduleData(prev => prev.map(s =>
+      s.id === slotId ? { ...s, overrideName: null } : s
+    ));
   };
 
   const handleDropOnPool = (e) => {
@@ -256,18 +275,27 @@ function App() {
   const handleCopyToClipboard = () => {
     if (!scheduleData) return;
 
-    // Check if there are errors and ask for confirmation
+    // Проверка ошибок перед копированием
     const hasErrors = Object.values(errors).some(e => e.type === 'error' || e.type === 'warning');
     if (hasErrors) {
       if (!window.confirm('В расписании обнаружены ошибки или предупреждения. Вы уверены, что хотите скопировать его в буфер обмена?')) {
         return;
       }
     }
+
     const grouped = { Г12: { РУ: [], ПК: [] }, Г345: { РУ: [], ПК: [] } };
-    scheduleData.forEach(slot => {
-      const assignedName = assignments[slot.assignedTo];
+
+    // Сортируем данные по времени, чтобы в итоговом тексте они шли по порядку (хронологически)
+    const sortedData = [...scheduleData].sort((a, b) => a.timeStart.localeCompare(b.timeStart));
+
+    sortedData.forEach(slot => {
+      // ПРИОРИТЕТ: overrideName (ручной перенос) > assignments (глобальная роль) > метка роли
+      const assignedName = slot.overrideName || assignments[slot.assignedTo];
       const display = assignedName || slot.assignedTo;
-      grouped[slot.sector][slot.position].push(`${slot.timeStart} – ${slot.timeEnd} : ${display}`);
+
+      if (grouped[slot.sector] && grouped[slot.sector][slot.position]) {
+        grouped[slot.sector][slot.position].push(`${slot.timeStart} – ${slot.timeEnd} : ${display}`);
+      }
     });
 
     const t = templates.find(t => t.id.toString() === selectedTemplateId);
@@ -294,8 +322,9 @@ function App() {
         <div className="position-title">{position === 'РУ' ? 'Радиолокатор (РУ)' : 'Процедурный (ПК)'}</div>
         <div className="schedule-list">
           {slots.map(slot => {
-            const assignedName = assignments[slot.assignedTo];
+            const assignedName = slot.overrideName || assignments[slot.assignedTo];
             const isFull = !!assignedName;
+            const isOverridden = !!slot.overrideName;
             const isMainDropTarget = hoveredMarker === slot.assignedTo;
             const isRelatedDropTarget = isDragging && hoveredMarker && hoveredMarker === slot.assignedTo;
 
@@ -305,14 +334,17 @@ function App() {
                 className={`atomic-slot 
                   ${!isFull && isDragging ? 'slot-drop-target' : ''} 
                   ${isRelatedDropTarget ? 'slot-highlight-marker' : ''}
+                  ${isOverridden ? 'slot-overridden' : ''}
                 `}
                 onDragOver={(e) => {
                   e.preventDefault();
                   if (hoveredMarker !== slot.assignedTo) setHoveredMarker(slot.assignedTo);
                 }}
-                onDrop={(e) => handleDropOnSlot(e, slot.assignedTo)}
+                onDrop={(e) => handleDropOnSlot(e, slot.assignedTo, slot.id)}
                 onDragLeave={() => setHoveredMarker(null)}
               >
+                {isOverridden && <div className="override-indicator" title="Ручное переопределение">★</div>}
+
                 <div className="slot-time-inputs">
                   <input type="time" value={slot.timeStart} className="time-input"
                     onChange={(e) => handleTimeChange(slot.id, 'timeStart', e.target.value)} />
@@ -325,12 +357,18 @@ function App() {
                   className={`slot-assigned ${isFull ? 'slot-filled' : 'slot-placeholder'}`}
                   draggable={isFull}
                   onDragStart={isFull ? (e) => {
-                    e.dataTransfer.setData('text/plain', encodeSlot(slot.assignedTo, assignedName));
+                    const dragName = slot.overrideName || assignedName;
+                    e.dataTransfer.setData('text/plain', encodeSlot(slot.assignedTo, dragName));
                     setIsDragging(true);
                     setHoveredMarker(slot.assignedTo);
                   } : undefined}
                   onDragEnd={() => { setIsDragging(false); setHoveredMarker(null); }}
                 >
+                  {isOverridden && (
+                    <button className="override-reset-btn" onClick={() => handleResetOverride(slot.id)} title="Сбросить к шаблону">
+                      🔗
+                    </button>
+                  )}
                   <span className="assigned-name">{assignedName || slot.assignedTo}</span>
                 </div>
 
