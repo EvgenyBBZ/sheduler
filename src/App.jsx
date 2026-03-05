@@ -1,6 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import './index.css';
 import { checkRules } from './validator';
+
+// ─── Helpers ──────────────────────────────────────────────────────
+const calculateDuration = (start, end) => {
+  if (!start || !end) return 0;
+  const [h1, m1] = start.split(':').map(Number);
+  const [h2, m2] = end.split(':').map(Number);
+  let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+  if (diff < 0) diff += 24 * 60; // Переход через полночь
+  return diff;
+};
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -81,6 +91,20 @@ function App() {
   const [errors, setErrors] = useState({});
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredMarker, setHoveredMarker] = useState(null);
+
+  // ── Statistics (Calculated reactively) ──
+  const workloadStats = useMemo(() => {
+    if (!scheduleData) return [];
+    const stats = {};
+    scheduleData.forEach(slot => {
+      const name = slot.overrideName || assignments[slot.assignedTo];
+      if (name && !name.startsWith('[')) {
+        const dur = calculateDuration(slot.timeStart, slot.timeEnd);
+        stats[name] = (stats[name] || 0) + dur;
+      }
+    });
+    return Object.entries(stats).sort((a, b) => b[1] - a[1]);
+  }, [scheduleData, assignments]);
 
   // ── Load data ──
   useEffect(() => {
@@ -164,7 +188,41 @@ function App() {
 
   // ── Time edit ──
   const handleTimeChange = (id, field, value) => {
-    setScheduleData(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
+    setScheduleData(prev => {
+      const updated = prev.map(s => s.id === id ? { ...s, [field]: value } : s);
+      // Авто-сортировка при изменении времени
+      return [...updated].sort((a, b) => a.timeStart.localeCompare(b.timeStart));
+    });
+  };
+
+  const handleAddSlot = (sector, position) => {
+    const newId = `custom_${Date.now()}`;
+    // Находим последний слот в этой позиции, чтобы предложить время
+    const lastSlot = scheduleData
+      .filter(s => s.sector === sector && s.position === position)
+      .sort((a, b) => a.timeStart.localeCompare(b.timeStart))
+      .pop();
+
+    const startTime = lastSlot ? lastSlot.timeEnd : "09:00";
+    const [h, m] = startTime.split(':').map(Number);
+    const endMinutes = h * 60 + m + 30;
+    const endTime = `${String(Math.floor(endMinutes / 60) % 24).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
+
+    const newSlot = {
+      id: newId,
+      sector,
+      position,
+      timeStart: startTime,
+      timeEnd: endTime,
+      assignedTo: `[Чел ${scheduleData.length + 1}]`,
+      isManual: true
+    };
+
+    setScheduleData(prev => [...prev, newSlot].sort((a, b) => a.timeStart.localeCompare(b.timeStart)));
+  };
+
+  const handleRemoveSlot = (id) => {
+    setScheduleData(prev => prev.filter(s => s.id !== id));
   };
 
   // ─── DROP LOGIC ────────────────────────────────────────────────
@@ -212,6 +270,30 @@ function App() {
         [targetMarker]: sourceName || null
       }));
     }
+  };
+
+  const handleResetSchedule = () => {
+    if (!scheduleData) return;
+    if (!window.confirm('Очистить всё расписание? Все сотрудники вернутся в пул.')) return;
+
+    // Собираем всех, кто был назначен, чтобы вернуть их в пул
+    const namesToReturn = new Set();
+    scheduleData.forEach(s => {
+      if (s.overrideName) namesToReturn.add(s.overrideName);
+    });
+    Object.values(assignments).forEach(name => {
+      if (name) namesToReturn.add(name);
+    });
+
+    setAssignments({});
+    setScheduleData(prev => prev.map(s => ({ ...s, overrideName: null })));
+    setPool(prev => {
+      const updated = new Set(prev);
+      namesToReturn.forEach(name => {
+        if (name && !name.startsWith('[')) updated.add(name);
+      });
+      return Array.from(updated);
+    });
   };
 
   const handleResetOverride = (slotId) => {
@@ -319,22 +401,30 @@ function App() {
 
     return (
       <div className="position-block">
-        <div className="position-title">{position === 'РУ' ? 'Радиолокатор (РУ)' : 'Процедурный (ПК)'}</div>
+        <div className="position-title">
+          <span>{position === 'РУ' ? 'Радиолокатор (РУ)' : 'Процедурный (ПК)'}</span>
+          <button className="add-slot-btn" title="Добавить блок" onClick={() => handleAddSlot(sector, position)}>+</button>
+        </div>
         <div className="schedule-list">
           {slots.map(slot => {
             const assignedName = slot.overrideName || assignments[slot.assignedTo];
             const isFull = !!assignedName;
             const isOverridden = !!slot.overrideName;
-            const isMainDropTarget = hoveredMarker === slot.assignedTo;
+            const isManual = !!slot.isManual;
+            const hasOverlapError = errors[slot.id] && errors[slot.id].message.includes('наслоение');
+            const hasGapError = errors[slot.id] && errors[slot.id].message.includes('разрыв');
             const isRelatedDropTarget = isDragging && hoveredMarker && hoveredMarker === slot.assignedTo;
 
             return (
               <div
                 key={slot.id}
-                className={`atomic-slot 
-                  ${!isFull && isDragging ? 'slot-drop-target' : ''} 
+                className={`atomic-slot
+                  ${!isFull && isDragging ? 'slot-drop-target' : ''}
                   ${isRelatedDropTarget ? 'slot-highlight-marker' : ''}
                   ${isOverridden ? 'slot-overridden' : ''}
+                  ${isManual ? 'slot-manual' : ''}
+                  ${hasOverlapError ? 'slot-overlap-error' : ''}
+                  ${hasGapError ? 'slot-gap-error' : ''}
                 `}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -343,7 +433,7 @@ function App() {
                 onDrop={(e) => handleDropOnSlot(e, slot.assignedTo, slot.id)}
                 onDragLeave={() => setHoveredMarker(null)}
               >
-                {isOverridden && <div className="override-indicator" title="Ручное переопределение">★</div>}
+                {isOverridden && !hasOverlapError && <div className="override-indicator" title="Ручное переопределение">★</div>}
 
                 <div className="slot-time-inputs">
                   <input type="time" value={slot.timeStart} className="time-input"
@@ -364,13 +454,19 @@ function App() {
                   } : undefined}
                   onDragEnd={() => { setIsDragging(false); setHoveredMarker(null); }}
                 >
-                  {isOverridden && (
-                    <button className="override-reset-btn" onClick={() => handleResetOverride(slot.id)} title="Сбросить к шаблону">
-                      🔗
-                    </button>
-                  )}
-                  <span className="assigned-name">{assignedName || slot.assignedTo}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
+                    {isOverridden && (
+                      <button className="override-reset-btn" onClick={() => handleResetOverride(slot.id)} title="Сбросить к шаблону">
+                        🔗
+                      </button>
+                    )}
+                    <span className="assigned-name">{assignedName || slot.assignedTo}</span>
+                  </div>
                 </div>
+
+                {isManual && (
+                  <button className="remove-slot-btn" onClick={() => handleRemoveSlot(slot.id)} title="Удалить блок">✕</button>
+                )}
 
                 {/* Validation icon */}
                 {errors[slot.id] && (
@@ -410,9 +506,43 @@ function App() {
         <div className={`pool-drop-zone ${isDragging ? 'pool-drop-active' : ''}`} onDragOver={e => e.preventDefault()} onDrop={handleDropOnPool}>
           ↩ Вернуть в пул
         </div>
-        <button id="save-btn" className="primary-btn" onClick={saveDraft} disabled={saving || !scheduleData}>
-          {saving ? 'СОХРАНЕНИЕ...' : 'СОХРАНИТЬ ПРОГРЕСС'}
-        </button>
+
+        {/* Workload Stats Section */}
+        {workloadStats.length > 0 && (
+          <div className="stats-block">
+            <div className="stats-title">📊 Нагрузка (мин)</div>
+            <div className="stats-list">
+              {(() => {
+                const maxMins = workloadStats[0][1] || 1;
+                return workloadStats.map(([name, mins]) => (
+                  <div key={name} className="stats-item">
+                    <div className="stats-info">
+                      <span className="stats-name">{name}</span>
+                      <span className="stats-value">{mins}</span>
+                    </div>
+                    <div className="stats-bar-container">
+                      <div
+                        className="stats-bar"
+                        style={{ width: `${(mins / maxMins) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        )}
+
+        <div className="buttons-group">
+          <button id="save-btn" className="primary-btn" onClick={saveDraft} disabled={saving || !scheduleData}>
+            {saving ? 'СОХРАНЕНИЕ...' : 'СОХРАНИТЬ ПРОГРЕСС'}
+          </button>
+          {scheduleData && (
+            <button className="danger-btn" onClick={handleResetSchedule}>
+              Очистить расписание
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="panel panel-right">

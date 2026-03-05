@@ -91,5 +91,59 @@ export const checkRules = (slots, assignments) => {
         }
     });
 
+    // 3. Правило: Наслоение времени внутри одной позиции (Workstation overlap)
+    // Группируем по уникальной локации: Г12-РУ, Г345-ПК и т.д.
+    const locationMap = {};
+    slots.forEach(slot => {
+        const key = `${slot.sector}-${slot.position}`;
+        if (!locationMap[key]) locationMap[key] = [];
+        locationMap[key].push({
+            id: slot.id,
+            start: timeToMinutes(slot.timeStart),
+            end: timeToMinutes(slot.timeEnd)
+        });
+    });
+
+    Object.entries(locationMap).forEach(([location, locSlots]) => {
+        locSlots.sort((a, b) => a.start - b.start);
+
+        for (let i = 0; i < locSlots.length - 1; i++) {
+            const current = locSlots[i];
+            const next = locSlots[i + 1];
+
+            // Debug log
+            console.log(`[Validation] Сектор: ${location}. Сравниваю: ${current.id} (${current.start}-${current.end}) и ${next.id} (${next.start}-${next.end})`);
+
+            // 1. Проверка наслоения (Overlap)
+            if (next.start < current.end) {
+                results[next.id] = {
+                    type: 'error',
+                    message: `Внимание: время заступает на предыдущую смену (наслоение в позиции).`
+                };
+                if (!results[current.id]) {
+                    results[current.id] = {
+                        type: 'error',
+                        message: `Внимание: время этой смены накладывается на следующую.`
+                    };
+                }
+            }
+            // 2. Проверка разрыва (Gap) - только если нет наслоения
+            else if (next.start > current.end) {
+                if (!results[next.id]) {
+                    results[next.id] = {
+                        type: 'warning',
+                        message: `Внимание: обнаружено пустое время между сменами (разрыв).`
+                    };
+                }
+                if (!results[current.id]) {
+                    results[current.id] = {
+                        type: 'warning',
+                        message: `Внимание: обнаружено пустое время после этой смены (разрыв).`
+                    };
+                }
+            }
+        }
+    });
+
     return results;
 };
